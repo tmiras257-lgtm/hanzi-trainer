@@ -85,7 +85,14 @@ await page.getByRole('button', { name: 'Начать занятие' }).click();
 await page.waitForSelector('.step.two-col', { timeout: 10000 });
 const char = (await page.locator('.col-right .big-char').first().textContent())?.trim();
 check('intro shows a character', Boolean(char), char);
-check('stroke animation mounted', (await page.locator('.writer-host svg path').count()) > 0);
+// Over the network the stroke chunk arrives after the step renders, so wait for it.
+// Counted rather than waited on as a visible selector: hanzi-writer keeps some of
+// its paths inside <defs>, which Playwright never considers visible.
+const mounted = await page
+  .waitForFunction(() => document.querySelectorAll('.writer-host svg path').length > 0, null, { timeout: 20000 })
+  .then(() => true)
+  .catch(() => false);
+check('stroke animation mounted', mounted);
 check('example words shown', (await page.locator('.words li').count()) > 0);
 await page.screenshot({ path: `${SHOTS}/02-intro.png`, fullPage: true });
 
