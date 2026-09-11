@@ -3,10 +3,39 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0d1012" />
-    <meta name="description" content="Персональный тренажёр китайских иероглифов: написание от руки, порядок черт и интервальные повторения." />
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230d1012'/><text y='72' x='50' text-anchor='middle' font-size='64' fill='%235ad1a8' font-family='PingFang SC,Noto Sans SC,sans-serif'>写</text></svg>" />
-    <title>Ханьцзы — тренажёр иероглифов</title>
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#F2F5F6" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0D1215" media="(prefers-color-scheme: dark)" />
+    <meta
+      name="description"
+      content="Тренажёр китайских тонов и пиньиня: слушаешь и определяешь тон, произносишь вслух — микрофон рисует контур твоего голоса и сравнивает с эталоном."
+    />
+    <title>Тоны — тренажёр мандарина</title>
+
+    <!-- The Chinese subset is the one font that must not arrive late: a flash of
+         fallback CJK is exactly what it exists to prevent. -->
+    <link rel="preload" href="/fonts/zh-400.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/zh-600.woff2" as="font" type="font/woff2" crossorigin />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+    />
+
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230D1215'/><path d='M22 66 L50 62 L78 30' fill='none' stroke='%232FA86E' stroke-width='11' stroke-linecap='round' stroke-linejoin='round'/></svg>"
+    />
+
+    <style>
+      /* Painted before the stylesheet parses, so the first frame is never white
+         on a dark desktop. */
+      :root { color-scheme: light dark; }
+      html { background: #F2F5F6; }
+      @media (prefers-color-scheme: dark) { html { background: #0D1215; } }
+    </style>
   </head>
   <body>
     <div id="root"></div>

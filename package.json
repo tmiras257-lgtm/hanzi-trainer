@@ -10,11 +10,11 @@
     "preview": "vite preview",
     "data": "node scripts/build-data.mjs",
     "smoke": "node scripts/smoke.mjs",
-    "ui-check": "node scripts/ui-check.mjs"
+    "ui-check": "node scripts/ui-check.mjs",
+    "tone-check": "node scripts/tone-check.mjs",
+    "font": "node scripts/build-font.mjs"
   },
   "dependencies": {
-    "hanzi-writer": "^3.7.3",
-    "hanzi-writer-data": "^2.0.1",
     "idb-keyval": "^6.3.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
@@ -27,6 +27,7 @@
     "@vitejs/plugin-react": "^6.1.0",
     "oxlint": "^1.79.0",
     "playwright": "^1.62.1",
+    "subset-font": "^2.7.0",
     "typescript": "~6.0.2",
     "vite": "^8.2.2"
   },

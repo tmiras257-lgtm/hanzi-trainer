@@ -1,181 +1,111 @@
 import { useMemo, useState } from 'react';
-import type { AppState, Hanzi } from '../lib/types';
-import { CHARACTERS } from '../lib/store';
-import { maturity, retention } from '../lib/srs';
-import { gloss, hskLabel, toneless } from '../lib/format';
-import { ruDate, today } from '../lib/date';
-import { useStroke } from '../lib/useStroke';
-import Writer from './Writer';
-import CharDetails from './CharDetails';
-import Pronounce from './Pronounce';
-
-type Filter = 'all' | 'learned' | 'due' | 'unseen';
+import type { AppState } from '../lib/types';
+import { cardId } from '../lib/types';
+import { MINIMAL_PAIRS, toneRow, SYLLABLES } from '../lib/syllables';
+import { TONE_NAMES, type Tone } from '../lib/pinyin';
+import { maturity } from '../lib/srs';
+import Speaker from './Speaker';
+import ToneStaff from './ToneStaff';
 
 interface Props {
   state: AppState;
-  focus: string | null;
-  onFocus: (c: string | null) => void;
-  onForget: (c: string) => void;
 }
 
-export default function Library({ state, focus, onFocus, onForget }: Props) {
+/**
+ * A reference table of minimal pairs: one row per base syllable, one column per
+ * tone. Rows where a tone does not exist stay empty rather than being filled
+ * with a near-miss, because a gap is information too.
+ */
+export default function Library({ state }: Props) {
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<Filter>('all');
-  const [hsk, setHsk] = useState<number | 'any'>('any');
-  const day = today();
+  const { profile } = state;
 
   const rows = useMemo(() => {
-    const q = toneless(query.trim());
-    return CHARACTERS.filter((h) => {
-      const card = state.cards[h.c];
-      if (filter === 'learned' && !card) return false;
-      if (filter === 'unseen' && card) return false;
-      if (filter === 'due' && !(card && card.due <= day)) return false;
-      if (hsk !== 'any' && h.hsk !== hsk) return false;
-      if (!q) return true;
-      return (
-        h.c.includes(q) ||
-        toneless(h.py).includes(q) ||
-        toneless(h.py).replace(/\s+/g, '').includes(q) ||
-        h.en.toLowerCase().includes(q) ||
-        h.ru.toLowerCase().includes(q)
-      );
-    });
-  }, [query, filter, hsk, state.cards, day]);
+    const q = query.trim().toLowerCase();
+    const source = MINIMAL_PAIRS.filter((p) => p.variants.length >= 2);
+    if (!q) return source.slice(0, 60);
+    return source
+      .filter(
+        (p) =>
+          p.base.includes(q) ||
+          p.variants.some((v) => v.marked.includes(q) || v.chars.some((c) => c.includes(q))),
+      )
+      .slice(0, 60);
+  }, [query]);
 
-  const selected = focus ? CHARACTERS.find((h) => h.c === focus) ?? null : null;
+  const known = (id: string) => {
+    const card = state.cards[cardId('tone', id)];
+    return card ? maturity(card) : null;
+  };
 
   return (
-    <div className="library">
-      <div className="lib-list panel">
-        <div className="lib-controls">
-          <input
-            className="search"
-            placeholder="Поиск: иероглиф, пиньинь, значение…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <div className="filters">
-            {(
-              [
-                ['all', 'Все'],
-                ['learned', 'Изучаются'],
-                ['due', 'К повторению'],
-                ['unseen', 'Не начаты'],
-              ] as [Filter, string][]
-            ).map(([k, label]) => (
-              <button key={k} className={`pill ${filter === k ? 'on' : ''}`} onClick={() => setFilter(k)}>
-                {label}
-              </button>
-            ))}
-            <select className="pill select" value={hsk} onChange={(e) => setHsk(e.target.value === 'any' ? 'any' : Number(e.target.value))}>
-              <option value="any">HSK: любой</option>
-              {[1, 2, 3, 4, 5, 6, 7].map((n) => (
-                <option key={n} value={n}>
-                  HSK {n === 7 ? '7-9' : n}
-                </option>
+    <div className="stack">
+      <div>
+        <h1>Минимальные пары</h1>
+        <p className="lede">
+          Слоги, которые отличаются только тоном — {MINIMAL_PAIRS.length} основ из {SYLLABLES.length} слогов.
+          Пустая клетка значит, что такого чтения в словаре нет.
+        </p>
+        <input
+          className="field"
+          style={{ padding: '.55rem .7rem', borderRadius: 'var(--r-md)', border: '1px solid var(--rule)', background: 'var(--surface)', maxWidth: '18rem' }}
+          placeholder="Поиск: ma, mǎ или 马"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          aria-label="Поиск по слогам"
+        />
+      </div>
+
+      <div className="card" style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '34rem' }}>
+          <thead>
+            <tr>
+              <th style={{ textAlign: 'left', padding: '.4rem .5rem', fontSize: '.72rem', color: 'var(--ink-faint)', fontWeight: 500 }}>
+                основа
+              </th>
+              {([1, 2, 3, 4] as Tone[]).map((t) => (
+                <th key={t} className={`tone-${t}`} style={{ padding: '.4rem .5rem', fontSize: '.72rem', fontWeight: 500 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.15rem' }}>
+                    <ToneStaff size="glyph" tone={t} solo label={`Тон ${t}: ${TONE_NAMES[t]}`} />
+                    <span style={{ color: 'var(--tone)', fontFamily: 'var(--mono)' }}>{t}</span>
+                  </div>
+                </th>
               ))}
-            </select>
-          </div>
-          <p className="note">Найдено: {rows.length}</p>
-        </div>
-
-        <div className="lib-rows">
-          {rows.map((h) => {
-            const card = state.cards[h.c];
-            const m = card ? maturity(card) : null;
-            return (
-              <button
-                key={h.c}
-                className={`lib-row ${focus === h.c ? 'on' : ''}`}
-                onClick={() => onFocus(h.c)}
-              >
-                <span className={`lib-char ${m ?? 'unseen'}`}>{h.c}</span>
-                <span className="lib-mid">
-                  <span className="pinyin">{h.py}</span>
-                  <span className="lib-gloss">{gloss(h)}</span>
-                </span>
-                <span className="lib-meta">
-                  <span className="note">#{h.rank}</span>
-                  {card && <span className={`dot ${m}`} title={`повтор ${ruDate(card.due)}`} />}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ base }) => (
+              <tr key={base} style={{ borderTop: '1px solid var(--rule-soft)' }}>
+                <td className="num" style={{ padding: '.5rem', color: 'var(--ink-muted)', fontSize: '.82rem' }}>{base}</td>
+                {toneRow(base).map((s, i) => (
+                  <td key={i} style={{ padding: '.35rem .5rem', textAlign: 'center' }}>
+                    {s ? (
+                      <div className={`tone-${s.tone}`} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.1rem' }}>
+                        <span className="py" style={{ color: 'var(--tone)', fontWeight: 600 }}>{s.marked}</span>
+                        <span className="zh" style={{ fontSize: '1.15rem' }}>{s.chars[0]}</span>
+                        <span className="tiny" style={{ opacity: known(s.id) ? 1 : .35 }}>
+                          {known(s.id) ? '●' : '○'}
+                        </span>
+                        <Speaker
+                          text={s.chars[0]}
+                          voiceURI={profile.ttsVoice}
+                          rate={profile.ttsRate}
+                          label=""
+                          className="ghost sm"
+                        />
+                      </div>
+                    ) : (
+                      <span style={{ color: 'var(--ink-faint)' }}>—</span>
+                    )}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
-      <div className="lib-detail panel">
-        {selected ? (
-          <Detail h={selected} state={state} onForget={onForget} />
-        ) : (
-          <p className="note centered-note">Выбери иероглиф слева, чтобы посмотреть карточку, порядок черт и уровень HSK.</p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function Detail({ h, state, onForget }: { h: Hanzi; state: AppState; onForget: (c: string) => void }) {
-  const { data, error } = useStroke(h.c);
-  const card = state.cards[h.c];
-  const r = card ? retention(card) : null;
-
-  return (
-    <div className="detail-body">
-      <div className="detail-writer">
-        {data ? <Writer char={h.c} data={data} mode="animate" size={300} /> : <div className="writer-placeholder">{error ?? 'Загружаю…'}</div>}
-      </div>
-      <div className="detail-info">
-        <div className="big-char">{h.c}</div>
-        <CharDetails h={h} voiceURI={state.profile.ttsVoice} />
-        <Pronounce target={h.c} pinyin={h.py} />
-
-        <div className="card-state">
-          <h3>Твой прогресс</h3>
-          {card ? (
-            <>
-              <div className="kv">
-                <span>Следующее повторение</span>
-                <b>{ruDate(card.due)}</b>
-              </div>
-              <div className="kv">
-                <span>Интервал</span>
-                <b>{card.interval} дн.</b>
-              </div>
-              <div className="kv">
-                <span>Лёгкость (EF)</span>
-                <b>{card.ef.toFixed(2)}</b>
-              </div>
-              <div className="kv">
-                <span>Написание</span>
-                <b>
-                  {card.writeOk} / {card.writeTotal}
-                </b>
-              </div>
-              <div className="kv">
-                <span>Квиз</span>
-                <b>
-                  {card.quizOk} / {card.quizTotal}
-                </b>
-              </div>
-              <div className="kv">
-                <span>Удержание</span>
-                <b>{r === null ? '—' : `${Math.round(r * 100)}%`}</b>
-              </div>
-              <div className="kv">
-                <span>Срывов</span>
-                <b>{card.lapses}</b>
-              </div>
-              <button className="btn ghost sm" onClick={() => onForget(h.c)}>
-                Убрать из колоды
-              </button>
-            </>
-          ) : (
-            <p className="note">Ещё не введён. Появится в занятии, когда до него дойдёт очередь ({hskLabel(h)}).</p>
-          )}
-        </div>
-      </div>
+      <p className="tiny">● — слог уже в колоде, ○ — ещё не встречался.</p>
     </div>
   );
 }

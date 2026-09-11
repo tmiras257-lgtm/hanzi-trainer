@@ -1,10 +1,13 @@
 /*
  * Cache-first for everything on this origin, so the trainer keeps working with no
- * network at all once it has been opened. Stroke data and the app bundle are both
+ * network at all once it has been opened. The bundle and the subset font are
  * content-addressed or stable, so serving a cached copy first is safe; new versions
  * arrive on the next load because we also refresh in the background.
+ *
+ * The cache name is versioned: v1 held the stroke-order data of the handwriting
+ * trainer, several megabytes that are now dead weight. Bumping the name drops it.
  */
-const CACHE = 'hanzi-trainer-v1';
+const CACHE = 'tones-trainer-v2';
 
 self.addEventListener('install', (e) => {
   self.skipWaiting();

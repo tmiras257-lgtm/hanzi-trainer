@@ -1,108 +1,134 @@
 /**
- * Thin wrappers over the Web Speech API.
+ * Speech synthesis.
  *
- * Synthesis is reliable; recognition is not. Browsers expose recognition as a
- * word-level transcript with no phonetic or tonal detail, and Chrome streams the
- * audio to a remote service, so it needs a network connection. A wrong tone often
- * still transcribes to the character you aimed for, so a "correct" result here is
- * weak evidence. The UI says so wherever recognition is offered.
+ * The app is audio-first now, so a missing Chinese voice is not a cosmetic
+ * problem — it is the difference between a working trainer and a silent one.
+ * Two things make that fragile in browsers:
+ *
+ *  - getVoices() is empty until the engine has loaded, and Chrome fires
+ *    'voiceschanged' late, sometimes only after the first user gesture;
+ *  - a macOS install without a Chinese voice will happily read 马 with an
+ *    English voice, producing something that is not Mandarin at all.
+ *
+ * So voices are polled as well as listened for, and the absence of a Chinese
+ * voice is reported to the interface rather than hidden behind a dead button.
  */
 
 export const ttsSupported = typeof window !== 'undefined' && 'speechSynthesis' in window;
 
-type SR = typeof window extends { SpeechRecognition: infer T } ? T : any;
-const RecognitionCtor: any =
-  typeof window !== 'undefined'
-    ? (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition
-    : undefined;
-
-export const asrSupported = Boolean(RecognitionCtor);
-
 let voices: SpeechSynthesisVoice[] = [];
+const listeners = new Set<() => void>();
+let polling = 0;
+
+function isChinese(v: SpeechSynthesisVoice): boolean {
+  return /^zh|^cmn|Chinese|Mandarin/i.test(`${v.lang} ${v.name}`);
+}
 
 export function chineseVoices(): SpeechSynthesisVoice[] {
-  return voices.filter((v) => /^zh/i.test(v.lang));
+  return voices.filter(isChinese);
 }
 
-export function refreshVoices(): SpeechSynthesisVoice[] {
-  if (!ttsSupported) return [];
-  voices = window.speechSynthesis.getVoices();
-  return chineseVoices();
+export function allVoices(): SpeechSynthesisVoice[] {
+  return voices;
 }
 
+function refresh(): boolean {
+  if (!ttsSupported) return false;
+  const next = window.speechSynthesis.getVoices();
+  if (next.length === voices.length && next.every((v, i) => v.voiceURI === voices[i]?.voiceURI)) return false;
+  voices = next;
+  listeners.forEach((cb) => cb());
+  return true;
+}
+
+/**
+ * Subscribe to the voice list. Polls for a few seconds after start because
+ * 'voiceschanged' is unreliable, then stops so nothing spins forever.
+ */
 export function onVoicesReady(cb: () => void): () => void {
   if (!ttsSupported) return () => {};
-  refreshVoices();
-  const handler = () => {
-    refreshVoices();
-    cb();
-  };
+  listeners.add(cb);
+  refresh();
+
+  const handler = () => refresh();
   window.speechSynthesis.addEventListener('voiceschanged', handler);
-  return () => window.speechSynthesis.removeEventListener('voiceschanged', handler);
+
+  if (!polling) {
+    let tries = 0;
+    polling = window.setInterval(() => {
+      tries += 1;
+      const found = refresh();
+      if (tries > 20 || (found && chineseVoices().length)) {
+        window.clearInterval(polling);
+        polling = 0;
+      }
+    }, 250);
+  }
+
+  return () => {
+    listeners.delete(cb);
+    window.speechSynthesis.removeEventListener('voiceschanged', handler);
+  };
 }
 
-export function speak(text: string, opts: { voiceURI?: string | null; rate?: number } = {}): void {
-  if (!ttsSupported || !text) return;
+export type VoiceStatus = 'ready' | 'loading' | 'no-chinese' | 'unsupported';
+
+export function voiceStatus(): VoiceStatus {
+  if (!ttsSupported) return 'unsupported';
+  if (chineseVoices().length) return 'ready';
+  return voices.length ? 'no-chinese' : 'loading';
+}
+
+export const VOICE_HELP: Record<VoiceStatus, string> = {
+  ready: '',
+  loading: 'Голоса ещё загружаются…',
+  'no-chinese':
+    'В системе нет китайского голоса, поэтому озвучка звучала бы не по-китайски. macOS: Системные настройки → Универсальный доступ → Проговаривание → Системный голос → Управление голосами → добавь китайский (Tingting или Li-Mu).',
+  unsupported: 'Этот браузер не умеет синтез речи. Нужен Chrome, Edge или Safari.',
+};
+
+export function pickVoice(preferredURI?: string | null): SpeechSynthesisVoice | undefined {
+  const zh = chineseVoices();
+  if (!zh.length) return undefined;
+  const normalised = (v: SpeechSynthesisVoice) => v.lang.replace('_', '-').toLowerCase();
+  return (
+    (preferredURI ? zh.find((v) => v.voiceURI === preferredURI) : undefined) ??
+    zh.find((v) => normalised(v) === 'zh-cn') ??
+    zh.find((v) => normalised(v).startsWith('zh')) ??
+    zh[0]
+  );
+}
+
+export interface SpeakOptions {
+  voiceURI?: string | null;
+  rate?: number;
+  onStart?: () => void;
+  onEnd?: () => void;
+}
+
+/**
+ * Speaks text, resolving to false when no Chinese voice exists so the caller
+ * can say why instead of appearing to do nothing.
+ */
+export function speak(text: string, opts: SpeakOptions = {}): boolean {
+  if (!ttsSupported || !text) return false;
+  const voice = pickVoice(opts.voiceURI);
+  if (!voice) return false;
+
   window.speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'zh-CN';
-  u.rate = opts.rate ?? 0.85;
-  const zh = chineseVoices();
-  const chosen =
-    (opts.voiceURI && zh.find((v) => v.voiceURI === opts.voiceURI)) ??
-    zh.find((v) => v.lang.replace('_', '-').toLowerCase() === 'zh-cn') ??
-    zh[0];
-  if (chosen) u.voice = chosen;
+  u.voice = voice;
+  u.lang = voice.lang || 'zh-CN';
+  u.rate = opts.rate ?? 0.8;
+  if (opts.onStart) u.onstart = () => opts.onStart?.();
+  if (opts.onEnd) {
+    u.onend = () => opts.onEnd?.();
+    u.onerror = () => opts.onEnd?.();
+  }
   window.speechSynthesis.speak(u);
+  return true;
 }
 
-export interface RecognitionResult {
-  transcript: string;
-  confidence: number;
+export function stopSpeaking(): void {
+  if (ttsSupported) window.speechSynthesis.cancel();
 }
-
-export function listenOnce(timeoutMs = 6000): Promise<RecognitionResult> {
-  return new Promise((resolve, reject) => {
-    if (!RecognitionCtor) return reject(new Error('unsupported'));
-    const rec: any = new RecognitionCtor();
-    rec.lang = 'zh-CN';
-    rec.continuous = false;
-    rec.interimResults = false;
-    rec.maxAlternatives = 3;
-
-    let settled = false;
-    const done = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      try {
-        rec.stop();
-      } catch {
-        /* already stopped */
-      }
-      fn();
-    };
-    const timer = setTimeout(() => done(() => reject(new Error('timeout'))), timeoutMs);
-
-    rec.onresult = (e: any) => {
-      const r = e.results[0][0];
-      done(() => resolve({ transcript: String(r.transcript ?? ''), confidence: Number(r.confidence ?? 0) }));
-    };
-    rec.onerror = (e: any) => done(() => reject(new Error(e.error || 'error')));
-    rec.onend = () => done(() => reject(new Error('no-speech')));
-
-    try {
-      rec.start();
-    } catch (e) {
-      done(() => reject(e as Error));
-    }
-  });
-}
-
-/** Recognition returns text, so all we can honestly check is whether the characters match. */
-export function transcriptMatches(transcript: string, target: string): boolean {
-  const clean = (s: string) => s.replace(/[\s,.。，、!?！？]/g, '');
-  return clean(transcript).includes(clean(target));
-}
-
-export type SRType = SR;

@@ -1,22 +1,23 @@
-import type { CardState } from './types';
+import type { CardKind, CardState } from './types';
+import { cardId } from './types';
 import { addDays, today } from './date';
 
 /**
- * SM-2, with two deviations that matter for handwriting practice:
- *  - a lapse drops the card to a 1-day interval instead of erasing the ease factor,
- *    so a character you keep almost-remembering does not restart from zero;
- *  - the first two successful intervals are fixed (1d, 3d) rather than derived,
- *    which keeps brand-new characters in sight during the first week.
+ * SM-2, with two deviations that matter for tone practice:
+ *  - a lapse drops the card to a 1-day interval instead of erasing the ease
+ *    factor, so a tone you keep almost-hearing does not restart from zero;
+ *  - the first two successful intervals are fixed (1d, 3d), which keeps a new
+ *    syllable in sight during the first week.
  */
 export const MIN_EF = 1.3;
 export const MAX_EF = 2.8;
-/** A year out is already far beyond "known"; letting intervals compound past that
- *  only produces dates the Date constructor cannot represent. */
 export const MAX_INTERVAL = 365;
 
-export function newCard(c: string, day = today()): CardState {
+export function newCard(kind: CardKind, key: string, day = today()): CardState {
   return {
-    c,
+    id: cardId(kind, key),
+    kind,
+    key,
     ef: 2.5,
     interval: 0,
     reps: 0,
@@ -24,10 +25,12 @@ export function newCard(c: string, day = today()): CardState {
     due: day,
     introduced: day,
     history: [],
-    writeOk: 0,
-    writeTotal: 0,
-    quizOk: 0,
-    quizTotal: 0,
+    earOk: 0,
+    earTotal: 0,
+    sayOk: 0,
+    sayTotal: 0,
+    readOk: 0,
+    readTotal: 0,
   };
 }
 
@@ -49,29 +52,30 @@ export function schedule(card: CardState, quality: number, day = today()): CardS
     ef = clamp(ef + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02)), MIN_EF, MAX_EF);
   }
 
-  return {
-    ...card,
-    ef,
-    interval,
-    reps,
-    lapses,
-    due: addDays(day, interval),
-    history: [...card.history, q].slice(-20),
-  };
+  return { ...card, ef, interval, reps, lapses, due: addDays(day, interval), history: [...card.history, q].slice(-20) };
 }
 
 function clamp(n: number, lo: number, hi: number) {
   return Math.min(hi, Math.max(lo, n));
 }
 
-/** Maps a hanzi-writer quiz result onto the 0-5 SM-2 scale. */
-export function gradeWriting(mistakes: number, hintUsed: boolean, revealed: boolean): number {
-  if (revealed) return 1;
-  if (hintUsed) return mistakes <= 2 ? 2 : 1;
-  if (mistakes === 0) return 5;
-  if (mistakes === 1) return 4;
-  if (mistakes === 2) return 3;
-  return 2;
+/** A multiple-choice answer: right first time, or not. */
+export function gradeChoice(correct: boolean, hintUsed: boolean, msTaken: number): number {
+  if (!correct) return 1;
+  if (hintUsed) return 3;
+  return msTaken < 3500 ? 5 : 4;
+}
+
+/**
+ * A spoken attempt, graded from how confidently the pitch tracker read the
+ * intended tone. Confidence comes from the contour comparison, so a shape that
+ * merely leans the right way scores lower than one that lands on it.
+ */
+export function gradeSpoken(confidence: number, heardRightTone: boolean, retries: number): number {
+  if (!heardRightTone) return retries > 0 ? 0 : 1;
+  if (confidence >= 0.75) return retries === 0 ? 5 : 4;
+  if (confidence >= 0.5) return 4;
+  return 3;
 }
 
 /** Rough retention: share of non-failing grades across a card's history. */

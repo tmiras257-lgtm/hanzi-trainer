@@ -1,32 +1,24 @@
 import { useEffect, useState } from 'react';
-import { useAppState, CHARACTERS } from './lib/store';
+import { useAppState } from './lib/store';
 import { levelFromXp } from './lib/format';
-import Dashboard from './components/Dashboard';
-import SessionView from './components/SessionView';
+import Home from './components/Home';
+import Session from './components/Session';
 import Library from './components/Library';
 import Settings from './components/Settings';
-import type { SessionLength } from './lib/types';
+import ToneStaff from './components/ToneStaff';
 
 type Tab = 'home' | 'session' | 'library' | 'settings';
 
 export default function App() {
   const { state, actions } = useAppState();
   const [tab, setTab] = useState<Tab>('home');
-  const [focusChar, setFocusChar] = useState<string | null>(null);
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
     navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {});
   }, []);
 
-  if (!state) {
-    return (
-      <div className="boot">
-        <div className="boot-char">写</div>
-        <p>Загружаю прогресс…</p>
-      </div>
-    );
-  }
+  if (!state) return <BootSkeleton />;
 
   const { level } = levelFromXp(state.profile.xp);
 
@@ -34,47 +26,35 @@ export default function App() {
     <div className="app">
       <nav className="topbar">
         <div className="brand">
-          <span className="brand-char">写</span>
-          <span className="brand-name">Ханьцзы</span>
+          <ToneStaff size="glyph" tone={2} solo label="Тоны" />
+          <span className="brand-name">Тоны</span>
         </div>
+
         {tab !== 'session' && (
           <div className="tabs">
-            <TabBtn on={tab === 'home'} onClick={() => setTab('home')}>
-              Главная
-            </TabBtn>
-            <TabBtn on={tab === 'library'} onClick={() => setTab('library')}>
-              Иероглифы
-            </TabBtn>
-            <TabBtn on={tab === 'settings'} onClick={() => setTab('settings')}>
-              Настройки
-            </TabBtn>
+            <button className={`tab ${tab === 'home' ? 'on' : ''}`} onClick={() => setTab('home')}>Главная</button>
+            <button className={`tab ${tab === 'library' ? 'on' : ''}`} onClick={() => setTab('library')}>Слоги</button>
+            <button className={`tab ${tab === 'settings' ? 'on' : ''}`} onClick={() => setTab('settings')}>Настройки</button>
           </div>
         )}
-        <div className="topstats">
+
+        <div className="topstats" style={tab === 'session' ? { marginLeft: 'auto' } : undefined}>
           <span className="badge">🔥 {state.profile.streak}</span>
           <span className="badge">Ур. {level}</span>
-          <span className="badge">
-            {Object.keys(state.cards).length}/{CHARACTERS.length}
-          </span>
         </div>
       </nav>
 
       <main className="content">
-        {tab === 'home' && (
-          <Dashboard
+        {tab === 'home' && <Home state={state} onStart={() => setTab('session')} />}
+        {tab === 'session' && (
+          <Session
             state={state}
-            onStart={() => setTab('session')}
-            onSetLength={(m: SessionLength) => actions.setProfile({ sessionMinutes: m })}
-            onOpenChar={(c) => {
-              setFocusChar(c);
-              setTab('library');
-            }}
+            onAnswer={actions.answer}
+            onFinish={actions.finishSession}
+            onExit={() => setTab('home')}
           />
         )}
-        {tab === 'session' && <SessionView state={state} actions={actions} onExit={() => setTab('home')} />}
-        {tab === 'library' && (
-          <Library state={state} focus={focusChar} onFocus={setFocusChar} onForget={actions.forget} />
-        )}
+        {tab === 'library' && <Library state={state} />}
         {tab === 'settings' && (
           <Settings
             state={state}
@@ -88,10 +68,60 @@ export default function App() {
   );
 }
 
-function TabBtn({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+/**
+ * Sized to the real home screen, so when the saved progress arrives nothing
+ * moves: same heading block, same button, same card grid, same heights.
+ */
+function BootSkeleton() {
   return (
-    <button className={`tab ${on ? 'on' : ''}`} onClick={onClick}>
-      {children}
-    </button>
+    <div className="app">
+      <nav className="topbar">
+        <div className="brand">
+          <ToneStaff size="glyph" tone={2} solo label="Тоны" />
+          <span className="brand-name">Тоны</span>
+        </div>
+        <div className="tabs" aria-hidden="true">
+          <span className="sk" style={{ width: 68, height: 30, borderRadius: 6 }} />
+          <span className="sk" style={{ width: 58, height: 30, borderRadius: 6 }} />
+          <span className="sk" style={{ width: 82, height: 30, borderRadius: 6 }} />
+        </div>
+        <div className="topstats" aria-hidden="true">
+          <span className="sk" style={{ width: 44, height: 22, borderRadius: 999 }} />
+          <span className="sk" style={{ width: 52, height: 22, borderRadius: 999 }} />
+        </div>
+      </nav>
+
+      <main className="content" aria-busy="true" aria-label="Загружаю прогресс">
+        <div className="stack">
+          <div>
+            <span className="sk text" style={{ display: 'block', width: 160, marginBottom: 10 }} />
+            <span className="sk" style={{ display: 'block', width: 260, height: 30, marginBottom: 10 }} />
+            <span className="sk text" style={{ display: 'block', width: 340, marginBottom: 18 }} />
+            <span className="sk" style={{ display: 'block', width: 190, height: 46, borderRadius: 16 }} />
+          </div>
+
+          <div className="card">
+            <span className="sk text" style={{ display: 'block', width: 120, marginBottom: 14 }} />
+            <div className="tone-grid">
+              {[1, 2, 3, 4].map((i) => (
+                <span key={i} className="sk" style={{ height: 92, borderRadius: 10 }} />
+              ))}
+            </div>
+          </div>
+
+          <div className="grid three">
+            {[1, 2, 3].map((i) => (
+              <span key={i} className="sk" style={{ height: 78, borderRadius: 16 }} />
+            ))}
+          </div>
+
+          <div className="grid two">
+            {[1, 2].map((i) => (
+              <span key={i} className="sk" style={{ height: 132, borderRadius: 16 }} />
+            ))}
+          </div>
+        </div>
+      </main>
+    </div>
   );
 }
