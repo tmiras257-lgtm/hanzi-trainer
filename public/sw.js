@@ -1,55 +1,52 @@
 /*
- * Cache-first for everything on this origin, so the trainer keeps working with no
- * network at all once it has been opened. The bundle and the subset font are
- * content-addressed or stable, so serving a cached copy first is safe; new versions
- * arrive on the next load because we also refresh in the background.
+ * Kill switch.
  *
- * The cache name is versioned: v1 held the stroke-order data of the handwriting
- * trainer, several megabytes that are now dead weight. Bumping the name drops it.
+ * The previous version of this file was cache-first over every GET on the
+ * origin. That is fine until the build changes: a returning browser kept
+ * serving the old cached index.html, which points at a hashed bundle that no
+ * longer exists on the server, so the page rendered nothing at all. Bumping the
+ * cache name did not help — the old worker stays in control, so the new
+ * worker's cleanup never runs.
+ *
+ * This worker therefore does one thing: remove every cache, unregister itself,
+ * and reload whatever windows it was controlling. After that the site is served
+ * plainly by the network and the browser's own HTTP cache, which is all a small
+ * static bundle needed in the first place.
+ *
+ * It deliberately has no fetch handler, so while it is alive nothing is
+ * intercepted.
  */
-const CACHE = 'tones-trainer-v2';
 
-self.addEventListener('install', (e) => {
+self.addEventListener('install', () => {
   self.skipWaiting();
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll([self.registration.scope])).catch(() => {}));
 });
 
-self.addEventListener('activate', (e) => {
-  e.waitUntil(
-    caches
-      .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
-      .then(() => self.clients.claim()),
-  );
-});
-
-self.addEventListener('fetch', (event) => {
-  const req = event.request;
-  if (req.method !== 'GET') return;
-  const url = new URL(req.url);
-  if (url.origin !== self.location.origin) return;
-
-  event.respondWith(
-    caches.match(req).then((hit) => {
-      const network = fetch(req)
-        .then((res) => {
-          if (res && res.ok) {
-            const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy));
-          }
-          return res;
-        })
-        .catch(() => hit);
-
-      if (hit) {
-        network.catch(() => {});
-        return hit;
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    (async () => {
+      try {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      } catch {
+        /* nothing cached, or storage blocked */
       }
-      return network.then((res) => {
-        if (res) return res;
-        // A navigation with nothing cached for this exact URL still gets the shell.
-        return caches.match(self.registration.scope);
-      });
-    }),
+
+      try {
+        await self.registration.unregister();
+      } catch {
+        /* already gone */
+      }
+
+      // Windows still showing the stale shell get one reload. This cannot loop:
+      // the registration is gone, so the reloaded page has no worker at all.
+      try {
+        const windows = await self.clients.matchAll({ type: 'window' });
+        for (const client of windows) {
+          if ('navigate' in client) await client.navigate(client.url);
+        }
+      } catch {
+        /* client navigation not permitted */
+      }
+    })(),
   );
 });

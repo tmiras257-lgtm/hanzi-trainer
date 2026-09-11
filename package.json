@@ -12,7 +12,8 @@
     "smoke": "node scripts/smoke.mjs",
     "ui-check": "node scripts/ui-check.mjs",
     "tone-check": "node scripts/tone-check.mjs",
-    "font": "node scripts/build-font.mjs"
+    "font": "node scripts/build-font.mjs",
+    "sw-check": "node scripts/sw-check.mjs"
   },
   "dependencies": {
     "idb-keyval": "^6.3.0",

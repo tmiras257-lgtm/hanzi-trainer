@@ -13,9 +13,26 @@ export default function App() {
   const { state, actions } = useAppState();
   const [tab, setTab] = useState<Tab>('home');
 
+  /*
+   * Earlier builds registered a cache-first service worker. It outlived its
+   * build: a returning browser was served a cached shell pointing at a bundle
+   * that no longer exists, and the page came up blank. Nothing here needs to
+   * work offline badly enough to justify that, so any leftover worker and its
+   * caches are torn down instead of replaced.
+   */
   useEffect(() => {
-    if (!('serviceWorker' in navigator)) return;
-    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {});
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .getRegistrations()
+        .then((regs) => Promise.all(regs.map((r) => r.unregister())))
+        .catch(() => {});
+    }
+    if ('caches' in window) {
+      caches
+        .keys()
+        .then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
+        .catch(() => {});
+    }
   }, []);
 
   if (!state) return <BootSkeleton />;
